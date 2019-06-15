@@ -590,6 +590,7 @@ describe('GatherRunner', function() {
     const cookies = [{
       'name': 'cookie1',
       'value': 'monster',
+      'domain': 'test.com',
     }];
 
     return GatherRunner.setupPassNetwork({
@@ -603,6 +604,35 @@ describe('GatherRunner', function() {
         cookies
       ));
   });
+
+  it('uses current url as cookie\'s url if neither domain nor url is specified', () => {
+    let receivedCookies = null;
+    const driver = getMockedEmulationDriver(null, null, null, null, null, params => {
+      receivedCookies = params.cookies;
+    });
+    const inputCookies = [{
+      'name': 'cookie1',
+      'value': 'monster',
+    }];
+    const expectedCookies = [{
+      'name': 'cookie1',
+      'value': 'monster',
+      'url': 'http://test.com/some_path',
+    }];
+
+    return GatherRunner.setupPassNetwork({
+      url: 'http://test.com/some_path',
+      driver,
+      settings: {
+        extraCookies: inputCookies,
+      },
+      passConfig: {gatherers: []},
+    }).then(() => assert.deepStrictEqual(
+      receivedCookies,
+      expectedCookies
+    ));
+  });
+
 
   it('tells the driver to begin tracing', async () => {
     let calledTrace = false;
