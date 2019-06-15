@@ -179,13 +179,10 @@ describe('CLI bin', function() {
       expect(getRunLighthouseArgs()[1]).toHaveProperty('extraCookies', [{'name': 'foo', 'value': 'bar', 'url': 'http://localhost'}]);
     });
 
-    it('should read extra cookies from file', async () => {
-      const headersFile = require.resolve('../fixtures/extra-cookies/valid.json');
+    it('should throw when invalid array is used', async () => {
       // @ts-ignore - see TODO: in bin.js
-      cliFlags = {...cliFlags, extraCookies: headersFile};
-      await bin.begin();
-
-      expect(getRunLighthouseArgs()[1]).toHaveProperty('extraCookies', require(headersFile));
+      cliFlags = {...cliFlags, extraCookies: 'INVALID_JSON_ARRAY'};
+      await expect(bin.begin()).rejects.toBeTruthy();
     });
   });
 

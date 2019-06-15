@@ -59,15 +59,6 @@ describe('CLI Tests', function() {
       assert.equal(ret.status, 1);
     });
 
-    it('should exit with a error if the file does not contain valid JSON', () => {
-      const ret = spawnSync('node', [indexPath, 'https://www.google.com',
-        '--extra-cookies',
-        path.resolve(__dirname, '../fixtures/extra-cookies/invalid.txt')], {encoding: 'utf8'});
-
-      assert.ok(ret.stderr.includes('Unexpected token'));
-      assert.equal(ret.status, 1);
-    });
-
     it('should exit with a error if the passsed in string is not valid JSON', () => {
       const ret = spawnSync('node', [indexPath, 'https://www.google.com',
         '--extra-headers', '{notjson}'], {encoding: 'utf8'});

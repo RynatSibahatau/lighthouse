@@ -128,13 +128,11 @@ async function begin() {
     // the conversion here, but long term either the CLI flag or the setting should have
     // a different name.
     // @ts-ignore
-    let extraCookiesStr = /** @type {string} */ (cliFlags.extraCookies);
-    // If not a JSON array, assume it's a path to a JSON file.
-    if (extraCookiesStr.substr(0, 1) !== '[') {
-      extraCookiesStr = fs.readFileSync(extraCookiesStr, 'utf-8');
-    }
-
+    const extraCookiesStr = /** @type {string} */ (cliFlags.extraCookies);
     cliFlags.extraCookies = JSON.parse(extraCookiesStr);
+    if (!Array.isArray(cliFlags.extraCookies)) {
+      throw new Error('extraCookies parameter must be a valid JSON array');
+    }
   }
 
   if (cliFlags.precomputedLanternDataPath) {
