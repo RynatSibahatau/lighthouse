@@ -213,7 +213,7 @@ class GatherRunner {
     // neccessary at the beginning of the next pass.
     await passContext.driver.blockUrlPatterns(blockedUrls);
     await passContext.driver.setExtraHTTPHeaders(passContext.settings.extraHeaders);
-    await GatherRunner.setupCookies(passContext)
+    await GatherRunner.setupCookies(passContext);
 
     log.timeEnd(status);
   }
