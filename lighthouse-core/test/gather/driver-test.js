@@ -7,81 +7,16 @@
 
 const Driver = require('../../gather/driver.js');
 const Connection = require('../../gather/connections/connection.js');
-const Element = require('../../lib/element.js');
+const LHElement = require('../../lib/lh-element.js');
 const EventEmitter = require('events').EventEmitter;
 const {protocolGetVersionResponse} = require('./fake-driver.js');
+const {createMockSendCommandFn, createMockOnceFn} = require('./mock-commands.js');
 
 const redirectDevtoolsLog = require('../fixtures/wikipedia-redirect.devtoolslog.json');
 
 /* eslint-env jest */
 
 jest.useFakeTimers();
-
-/**
- * Creates a jest mock function whose implementation consumes mocked protocol responses matching the
- * requested command in the order they were mocked.
- *
- * It is decorated with two methods:
- *    - `mockResponse` which pushes protocol message responses for consumption
- *    - `findInvocation` which asserts that `sendCommand` was invoked with the given command and
- *      returns the protocol message argument.
- */
-function createMockSendCommandFn() {
-  const mockResponses = [];
-  const mockFn = jest.fn().mockImplementation(command => {
-    const indexOfResponse = mockResponses.findIndex(entry => entry.command === command);
-    if (indexOfResponse === -1) throw new Error(`${command} unimplemented`);
-    const {response, delay} = mockResponses[indexOfResponse];
-    mockResponses.splice(indexOfResponse, 1);
-    if (delay) return new Promise(resolve => setTimeout(() => resolve(response), delay));
-    return Promise.resolve(response);
-  });
-
-  mockFn.mockResponse = (command, response, delay) => {
-    mockResponses.push({command, response, delay});
-    return mockFn;
-  };
-
-  mockFn.findInvocation = command => {
-    expect(mockFn).toHaveBeenCalledWith(command, expect.anything());
-    return mockFn.mock.calls.find(call => call[0] === command)[1];
-  };
-
-  return mockFn;
-}
-
-/**
- * Creates a jest mock function whose implementation invokes `.on`/`.once` listeners after a setTimeout tick.
- * Closely mirrors `createMockSendCommandFn`.
- *
- * It is decorated with two methods:
- *    - `mockEvent` which pushes protocol event payload for consumption
- *    - `findListener` which asserts that `on` was invoked with the given event name and
- *      returns the listener .
- */
-function createMockOnceFn() {
-  const mockEvents = [];
-  const mockFn = jest.fn().mockImplementation((eventName, listener) => {
-    const indexOfResponse = mockEvents.findIndex(entry => entry.event === eventName);
-    if (indexOfResponse === -1) return;
-    const {response} = mockEvents[indexOfResponse];
-    mockEvents.splice(indexOfResponse, 1);
-    // Wait a tick because real events never fire immediately
-    setTimeout(() => listener(response), 0);
-  });
-
-  mockFn.mockEvent = (event, response) => {
-    mockEvents.push({event, response});
-    return mockFn;
-  };
-
-  mockFn.findListener = event => {
-    expect(mockFn).toHaveBeenCalledWith(event, expect.anything());
-    return mockFn.mock.calls.find(call => call[0] === event)[1];
-  };
-
-  return mockFn;
-}
 
 /**
  * Transparently augments the promise with inspectable functions to query its state.
@@ -173,7 +108,7 @@ describe('.querySelector(All)', () => {
       .mockResponse('DOM.querySelector', {nodeId: 231});
 
     const result = await driver.querySelector('meta head');
-    expect(result).toBeInstanceOf(Element);
+    expect(result).toBeInstanceOf(LHElement);
   });
 
   it('returns [] when DOM.querySelectorAll finds no node', async () => {
@@ -192,7 +127,7 @@ describe('.querySelector(All)', () => {
 
     const result = await driver.querySelectorAll('#no.matches');
     expect(result).toHaveLength(1);
-    expect(result[0]).toBeInstanceOf(Element);
+    expect(result[0]).toBeInstanceOf(LHElement);
   });
 });
 
@@ -263,7 +198,7 @@ describe('.evaluateAsync', () => {
 
   it('uses a high default timeout', async () => {
     connectionStub.sendCommand = createMockSendCommandFn()
-    .mockResponse('Runtime.evaluate', {result: {value: 2}}, 65000);
+      .mockResponse('Runtime.evaluate', {result: {value: 2}}, 65000);
 
     const evaluatePromise = makePromiseInspectable(driver.evaluateAsync('1 + 1'));
     jest.advanceTimersByTime(30000);
@@ -278,7 +213,7 @@ describe('.evaluateAsync', () => {
 
   it('uses the specific timeout given', async () => {
     connectionStub.sendCommand = createMockSendCommandFn()
-    .mockResponse('Runtime.evaluate', {result: {value: 2}}, 10000);
+      .mockResponse('Runtime.evaluate', {result: {value: 2}}, 10000);
 
     driver.setNextProtocolTimeout(5000);
     const evaluatePromise = makePromiseInspectable(driver.evaluateAsync('1 + 1'));
@@ -408,6 +343,7 @@ describe('.setExtraHTTPHeaders', () => {
 
     expect(connectionStub.sendCommand).toHaveBeenCalledWith(
       'Network.setExtraHTTPHeaders',
+      undefined,
       expect.anything()
     );
   });
@@ -962,76 +898,80 @@ describe('.goOnline', () => {
   });
 });
 
+describe('Domain.enable/disable State', () => {
+  it('dedupes (simple)', async () => {
+    connectionStub.sendCommand = createMockSendCommandFn()
+      .mockResponse('Network.enable')
+      .mockResponse('Network.disable')
+      .mockResponse('Fetch.enable')
+      .mockResponse('Fetch.disable');
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommand('Network.enable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(1);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(1);
+    // Network still has one enable.
+
+    await driver.sendCommand('Fetch.enable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(3);
+    // Network is now disabled.
+
+    await driver.sendCommand('Fetch.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(4);
+  });
+
+  it('dedupes (sessions)', async () => {
+    connectionStub.sendCommand = createMockSendCommandFn()
+      .mockResponse('Network.enable')
+      .mockResponseToSession('Network.enable', '123')
+      .mockResponse('Network.disable')
+      .mockResponseToSession('Network.disable', '123');
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommandToSession('Network.enable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommandToSession('Network.enable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommandToSession('Network.disable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommandToSession('Network.disable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(3);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('Multi-target management', () => {
   it('enables the Network domain for iframes', async () => {
     connectionStub.sendCommand = createMockSendCommandFn()
-      .mockResponse('Target.sendMessageToTarget', {})
-      .mockResponse('Target.sendMessageToTarget', {})
-      .mockResponse('Target.sendMessageToTarget', {});
+      .mockResponseToSession('Network.enable', '123', {})
+      .mockResponseToSession('Target.setAutoAttach', '123', {})
+      .mockResponseToSession('Runtime.runIfWaitingForDebugger', '123', {});
 
     driver._eventEmitter.emit('Target.attachedToTarget', {
-      sessionId: 123,
+      sessionId: '123',
       targetInfo: {type: 'iframe'},
     });
     await flushAllTimersAndMicrotasks();
 
-    const sendMessageArgs = connectionStub.sendCommand
-      .findInvocation('Target.sendMessageToTarget');
-    expect(sendMessageArgs).toEqual({
-      message: '{"id":1,"method":"Network.enable"}',
-      sessionId: 123,
-    });
-  });
-
-  it('enables the Network domain for iframes of iframes of iframes', async () => {
-    connectionStub.sendCommand = createMockSendCommandFn()
-      .mockResponse('Target.sendMessageToTarget', {})
-      .mockResponse('Target.sendMessageToTarget', {})
-      .mockResponse('Target.sendMessageToTarget', {});
-
-    driver._eventEmitter.emit('Target.receivedMessageFromTarget', {
-      sessionId: 'Outer',
-      message: JSON.stringify({
-        method: 'Target.receivedMessageFromTarget',
-        params: {
-          sessionId: 'Middle',
-          message: JSON.stringify({
-            method: 'Target.attachedToTarget',
-            params: {
-              sessionId: 'Inner',
-              targetInfo: {type: 'iframe'},
-            },
-          }),
-        },
-      }),
-    });
-
-    await flushAllTimersAndMicrotasks();
-
-    const sendMessageArgs = connectionStub.sendCommand
-      .findInvocation('Target.sendMessageToTarget');
-    const stringified = `{
-      "id": 3,
-      "method": "Target.sendMessageToTarget",
-      "params": {
-        "sessionId": "Middle",
-        "message": "{
-          \\"id\\": 2,
-          \\"method\\": \\"Target.sendMessageToTarget\\",
-          \\"params\\": {
-            \\"sessionId\\": \\"Inner\\",
-            \\"message\\":\\ "{
-              \\\\\\"id\\\\\\":1,
-              \\\\\\"method\\\\\\":\\\\\\"Network.enable\\\\\\"
-            }\\"
-          }}"
-        }
-      }`.replace(/\s+/g, '');
-
-    expect(sendMessageArgs).toEqual({
-      message: stringified,
-      sessionId: 'Outer',
-    });
+    expect(connectionStub.sendCommand).toHaveBeenNthCalledWith(1, 'Network.enable', '123');
+    expect(connectionStub.sendCommand)
+      .toHaveBeenNthCalledWith(2, 'Target.setAutoAttach', '123', expect.anything());
+    expect(connectionStub.sendCommand)
+      .toHaveBeenNthCalledWith(3, 'Runtime.runIfWaitingForDebugger', '123');
   });
 
   it('ignores other target types, but still resumes them', async () => {
@@ -1044,12 +984,7 @@ describe('Multi-target management', () => {
     });
     await flushAllTimersAndMicrotasks();
 
-
-    const sendMessageArgs = connectionStub.sendCommand
-      .findInvocation('Target.sendMessageToTarget');
-    expect(sendMessageArgs).toEqual({
-      message: JSON.stringify({id: 1, method: 'Runtime.runIfWaitingForDebugger'}),
-      sessionId: 'SW1',
-    });
+    expect(connectionStub.sendCommand)
+      .toHaveBeenNthCalledWith(1, 'Runtime.runIfWaitingForDebugger', 'SW1');
   });
 });

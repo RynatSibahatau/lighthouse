@@ -30,7 +30,7 @@ describe('Config', () => {
     assert.notEqual(config, newConfig);
   });
 
-  it('doesn\'t change directly injected plugins', () => {
+  it('doesn\'t change directly injected gatherer implementations', () => {
     class MyGatherer extends Gatherer {}
     class MyAudit extends Audit {
       static get meta() {
@@ -45,7 +45,7 @@ describe('Config', () => {
       static audit() {}
     }
     const config = {
-      // Extend to default to double test our ability to handle plugins
+      // Extend default to double test our ability to handle injection.
       extends: 'lighthouse:default',
       settings: {onlyAudits: ['my-audit']},
       passes: [{
@@ -58,7 +58,7 @@ describe('Config', () => {
     assert.equal(MyAudit, newConfig.audits[0].implementation);
   });
 
-  it('doesn\'t change directly injected plugin instances', () => {
+  it('doesn\'t change directly injected gatherer instances', () => {
     class MyGatherer extends Gatherer {
       constructor(secretVal) {
         super();
@@ -118,6 +118,56 @@ describe('Config', () => {
       defaultPass.gatherers.find(gatherer => gatherer.implementation === MyGatherer),
       'defaultPass should have contained extra gatherer'
     );
+  });
+
+  it('throws when an audit requires an artifact with no gatherer supplying it', async () => {
+    class NeedsWhatYouCantGive extends Audit {
+      static get meta() {
+        return {
+          id: 'missing-artifact-audit',
+          title: 'none',
+          description: 'none',
+          requiredArtifacts: [
+            // Require fake artifact amidst base artifact and default artifacts.
+            'URL',
+            'ConsoleMessages',
+            'VRMLElements', // not a real gatherer
+            'ViewportDimensions',
+          ],
+        };
+      }
+
+      static audit() {}
+    }
+
+    expect(() => new Config({
+      extends: 'lighthouse:default',
+      audits: [NeedsWhatYouCantGive],
+    // eslint-disable-next-line max-len
+    })).toThrow('VRMLElements gatherer, required by audit missing-artifact-audit, was not found in config');
+  });
+
+  it('does not throw when an audit requires only base artifacts', () => {
+    class BaseArtifactsAudit extends Audit {
+      static get meta() {
+        return {
+          id: 'base-artifacts-audit',
+          title: 'base',
+          description: 'base',
+          requiredArtifacts: ['HostUserAgent', 'URL', 'Stacks', 'WebAppManifest'],
+        };
+      }
+
+      static audit() {}
+    }
+
+    const config = new Config({
+      extends: 'lighthouse:default',
+      audits: [BaseArtifactsAudit],
+    }, {onlyAudits: ['base-artifacts-audit']});
+
+    assert.strictEqual(config.audits.length, 1);
+    assert.strictEqual(config.audits[0].implementation.meta.id, 'base-artifacts-audit');
   });
 
   it('throws for unknown gatherers', () => {
@@ -506,7 +556,13 @@ describe('Config', () => {
     assert.deepStrictEqual(config.settings.output, ['html']);
   });
 
-  it('extends the full config', () => {
+  it('does not throw on "lighthouse:full"', () => {
+    const config = new Config({extends: 'lighthouse:full'}, {output: ['html', 'json']});
+    assert.deepStrictEqual(config.settings.throttlingMethod, 'simulate');
+    assert.deepStrictEqual(config.settings.output, ['html', 'json']);
+  });
+
+  it('extends the config', () => {
     class CustomAudit extends Audit {
       static get meta() {
         return {
@@ -524,7 +580,7 @@ describe('Config', () => {
     }
 
     const config = new Config({
-      extends: 'lighthouse:full',
+      extends: 'lighthouse:default',
       audits: [
         CustomAudit,
       ],
@@ -578,7 +634,7 @@ describe('Config', () => {
   it('merges settings with correct priority', () => {
     const config = new Config(
       {
-        extends: 'lighthouse:full',
+        extends: 'lighthouse:default',
         settings: {
           disableStorageReset: true,
           emulatedFormFactor: 'mobile',
@@ -746,6 +802,7 @@ describe('Config', () => {
         const configJson = {
           settings: {
             budgets: [{
+              path: '/',
               resourceCounts: [{
                 resourceType: 'image',
                 budget: 500,

@@ -194,14 +194,18 @@ describe('DetailsRenderer', () => {
       assert.strictEqual(diagnosticEl, null);
     });
 
-    it('throws on unknown details type', () => {
+    it('renders an unknown details type', () => {
       // Disallowed by type system, but test that we get an error message out just in case.
       const details = {
         type: 'imaginary',
         items: 5,
       };
 
-      assert.throws(() => renderer.render(details), /^Error: Unknown type: imaginary$/);
+      const el = renderer.render(details);
+      const summaryEl = el.querySelector('summary');
+      expect(summaryEl.textContent)
+        .toContain('We don\'t know how to render audit details of type `imaginary`');
+      assert.strictEqual(el.lastChild.textContent, JSON.stringify(details, null, 2));
     });
   });
 
@@ -346,6 +350,26 @@ describe('DetailsRenderer', () => {
       assert.equal(linkEl.textContent, linkText);
     });
 
+    it('renders link value as text if URL is invalid', () => {
+      const linkText = 'Invalid Link';
+      const linkUrl = 'link nonsense';
+      const link = {
+        type: 'link',
+        text: linkText,
+        url: linkUrl,
+      };
+      const details = {
+        type: 'table',
+        headings: [{key: 'content', itemType: 'link', text: 'Heading'}],
+        items: [{content: link}],
+      };
+
+      const el = renderer.render(details);
+      const linkEl = el.querySelector('td.lh-table-column--link > .lh-text');
+      assert.equal(linkEl.localName, 'div');
+      assert.equal(linkEl.textContent, linkText);
+    });
+
     it('renders node values', () => {
       const node = {
         type: 'node',
@@ -369,6 +393,56 @@ describe('DetailsRenderer', () => {
       assert.equal(nodeEl.getAttribute('data-snippet'), node.snippet);
     });
 
+    it('renders source-location values', () => {
+      const sourceLocation = {
+        type: 'source-location',
+        url: 'https://www.example.com/script.js',
+        urlProvider: 'network',
+        line: 10,
+        column: 5,
+      };
+      const details = {
+        type: 'table',
+        headings: [{key: 'content', itemType: 'source-location', text: 'Heading'}],
+        items: [{content: sourceLocation}],
+      };
+
+      const el = renderer.render(details);
+      const sourceLocationEl = el.querySelector('.lh-source-location');
+      const anchorEl = sourceLocationEl.querySelector('a');
+      assert.strictEqual(sourceLocationEl.localName, 'div');
+      assert.equal(anchorEl.href, 'https://www.example.com/script.js');
+      assert.equal(sourceLocationEl.textContent, '/script.js:11:5(www.example.com)');
+      assert.equal(sourceLocationEl.getAttribute('data-source-url'), sourceLocation.url);
+      assert.equal(sourceLocationEl.getAttribute('data-source-line'), sourceLocation.line);
+      assert.equal(sourceLocationEl.getAttribute('data-source-column'), sourceLocation.column);
+    });
+
+    it('renders source-location values that aren\'t network resources', () => {
+      const sourceLocation = {
+        type: 'source-location',
+        url: 'https://www.example.com/script.js',
+        urlProvider: 'comment',
+        line: 0,
+        column: 0,
+      };
+      const details = {
+        type: 'table',
+        headings: [{key: 'content', itemType: 'source-location', text: 'Heading'}],
+        items: [{content: sourceLocation}],
+      };
+
+      const el = renderer.render(details);
+      const sourceLocationEl = el.querySelector('.lh-source-location');
+      const anchorEl = sourceLocationEl.querySelector('a');
+      assert.ok(!anchorEl);
+      assert.strictEqual(sourceLocationEl.localName, 'div');
+      assert.equal(sourceLocationEl.textContent, 'https://www.example.com/script.js:1:0 (from sourceURL)');
+      assert.equal(sourceLocationEl.getAttribute('data-source-url'), sourceLocation.url);
+      assert.equal(sourceLocationEl.getAttribute('data-source-line'), sourceLocation.line);
+      assert.equal(sourceLocationEl.getAttribute('data-source-column'), sourceLocation.column);
+    });
+
     it('renders text URL values from a string', () => {
       const urlText = 'https://example.com/';
       const displayUrlText = 'https://example.com';
@@ -385,7 +459,10 @@ describe('DetailsRenderer', () => {
       assert.equal(urlEl.localName, 'div');
       assert.equal(urlEl.title, urlText);
       assert.equal(urlEl.dataset.url, urlText);
-      assert.ok(urlEl.firstChild.classList.contains('lh-text'));
+      assert.equal(urlEl.firstChild.nodeName, 'A');
+      assert.equal(urlEl.firstChild.href, urlText);
+      assert.equal(urlEl.firstChild.rel, 'noopener');
+      assert.equal(urlEl.firstChild.target, '_blank');
       assert.equal(urlEl.textContent, displayUrlText);
     });
 
@@ -410,7 +487,7 @@ describe('DetailsRenderer', () => {
       assert.equal(urlEl.localName, 'div');
       assert.equal(urlEl.title, urlText);
       assert.equal(urlEl.dataset.url, urlText);
-      assert.ok(urlEl.firstChild.classList.contains('lh-text'));
+      assert.equal(urlEl.firstChild.nodeName, 'A');
       assert.equal(urlEl.textContent, displayUrlText);
     });
 
@@ -428,7 +505,7 @@ describe('DetailsRenderer', () => {
       assert.strictEqual(codeItemEl.innerHTML, '<pre class="lh-code">invalid-url://example.com/</pre>');
     });
 
-    it('throws on unknown heading itemType', () => {
+    it('renders an unknown heading itemType', () => {
       // Disallowed by type system, but test that we get an error message out just in case.
       const details = {
         type: 'table',
@@ -436,10 +513,15 @@ describe('DetailsRenderer', () => {
         items: [{content: 'some string'}],
       };
 
-      assert.throws(() => renderer.render(details), /^Error: Unknown valueType: notRealValueType$/);
+      const el = renderer.render(details);
+      const unknownEl = el.querySelector('td.lh-table-column--notRealValueType .lh-unknown');
+      const summaryEl = unknownEl.querySelector('summary');
+      expect(summaryEl.textContent)
+        .toContain('We don\'t know how to render audit details of type `notRealValueType`');
+      assert.strictEqual(unknownEl.lastChild.textContent, '"some string"');
     });
 
-    it('throws on unknown item object type', () => {
+    it('renders an unknown item object type', () => {
       // Disallowed by type system, but test that we get an error message out just in case.
       const item = {
         type: 'imaginaryItem',
@@ -452,7 +534,12 @@ describe('DetailsRenderer', () => {
         items: [{content: item}],
       };
 
-      assert.throws(() => renderer.render(details), /^Error: Unknown valueType: imaginaryItem$/);
+      const el = renderer.render(details);
+      const unknownEl = el.querySelector('td.lh-table-column--url .lh-unknown');
+      const summaryEl = unknownEl.querySelector('summary');
+      expect(summaryEl.textContent)
+        .toContain('We don\'t know how to render audit details of type `imaginaryItem`');
+      assert.strictEqual(unknownEl.lastChild.textContent, JSON.stringify(item, null, 2));
     });
 
     it('uses the item\'s type over the heading type', () => {

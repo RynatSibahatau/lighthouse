@@ -39,7 +39,7 @@ declare global {
   type NonVoid<T> = T extends void ? never : T;
 
   /** Remove properties K from T. */
-  type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
+  type StrictOmit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 
   /** Obtain the type of the first parameter of a function. */
   type FirstParamType<T extends (arg1: any, ...args: any[]) => any> =
@@ -74,7 +74,7 @@ declare global {
       serverResponseTimeByOrigin: {[origin: string]: number};
     }
 
-    export type Locale = 'en-US'|'en'|'en-AU'|'en-GB'|'en-IE'|'en-SG'|'en-ZA'|'en-IN'|'ar-XB'|'ar'|'bg'|'bs'|'ca'|'cs'|'da'|'de'|'el'|'en-XA'|'es'|'fi'|'fil'|'fr'|'he'|'hi'|'hr'|'hu'|'gsw'|'id'|'in'|'it'|'iw'|'ja'|'ko'|'ln'|'lt'|'lv'|'mo'|'nl'|'nb'|'no'|'pl'|'pt'|'pt-PT'|'ro'|'ru'|'sk'|'sl'|'sr'|'sr-Latn'|'sv'|'ta'|'te'|'th'|'tl'|'tr'|'uk'|'vi'|'zh'|'zh-HK'|'zh-TW';
+    export type Locale = 'en-US'|'en'|'en-AU'|'en-GB'|'en-IE'|'en-SG'|'en-ZA'|'en-IN'|'ar-XB'|'ar'|'bg'|'bs'|'ca'|'cs'|'da'|'de'|'el'|'en-XA'|'en-XL'|'es'|'es-419'|'es-AR'|'es-BO'|'es-BR'|'es-BZ'|'es-CL'|'es-CO'|'es-CR'|'es-CU'|'es-DO'|'es-EC'|'es-GT'|'es-HN'|'es-MX'|'es-NI'|'es-PA'|'es-PE'|'es-PR'|'es-PY'|'es-SV'|'es-US'|'es-UY'|'es-VE'|'fi'|'fil'|'fr'|'he'|'hi'|'hr'|'hu'|'gsw'|'id'|'in'|'it'|'iw'|'ja'|'ko'|'ln'|'lt'|'lv'|'mo'|'nl'|'nb'|'no'|'pl'|'pt'|'pt-PT'|'ro'|'ru'|'sk'|'sl'|'sr'|'sr-Latn'|'sv'|'ta'|'te'|'th'|'tl'|'tr'|'uk'|'vi'|'zh'|'zh-HK'|'zh-TW';
 
     export type OutputMode = 'json' | 'html' | 'csv';
 
@@ -101,8 +101,10 @@ declare global {
       gatherMode?: boolean | string;
       /** Flag indicating that the browser storage should not be reset for the audit. */
       disableStorageReset?: boolean;
-      /** The form factor the emulation should use. */
+      /** How emulation (useragent, device screen metrics, touch) should be applied. `none` indicates Lighthouse should leave the host browser as-is. */
       emulatedFormFactor?: 'mobile'|'desktop'|'none';
+      /** Dangerous setting only to be used by Lighthouse team. Disables the device metrics and touch emulation that emulatedFormFactor defines. Details in emulation.js */
+      internalDisableDeviceScreenEmulation?: boolean
       /** The method used to throttle the network. */
       throttlingMethod?: 'devtools'|'simulate'|'provided';
       /** The throttling config settings. */
@@ -223,6 +225,7 @@ declare global {
         fileName?: string;
         snapshot?: string;
         data?: {
+          frame?: string;
           isLoadingMainFrame?: boolean;
           documentLoaderURL?: string;
           frames?: {

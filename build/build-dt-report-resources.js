@@ -17,7 +17,7 @@ const generatorFilename = `./lighthouse-core/report/report-generator.js`;
 const htmlReportAssets = require('../lighthouse-core/report/html/html-report-assets.js');
 
 /**
- * Used to save cached resources (Runtime.cachedResources).
+ * Used to save cached resources (Root.Runtime.cachedResources).
  * @param {string} name
  * @param {string} content
  */
@@ -36,8 +36,8 @@ writeFile('templates.html', htmlReportAssets.REPORT_TEMPLATES);
 
 const pathToReportAssets = require.resolve('../clients/devtools-report-assets.js');
 browserify(generatorFilename, {standalone: 'Lighthouse.ReportGenerator'})
-  // Shims './html/html-report-assets' to resolve to devtools-report-assets.
-  .require(pathToReportAssets, {expose: './html/html-report-assets'})
+  // Shims './html/html-report-assets.js' to resolve to devtools-report-assets.js
+  .require(pathToReportAssets, {expose: './html/html-report-assets.js'})
   .bundle((err, src) => {
     if (err) throw err;
     fs.writeFileSync(bundleOutFile, src.toString());

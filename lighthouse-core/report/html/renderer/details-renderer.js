@@ -53,7 +53,7 @@ class DetailsRenderer {
       case 'table':
         return this._renderTable(details);
       case 'criticalrequestchain':
-        return CriticalRequestChainRenderer.render(this._dom, this._templateContext, details);
+        return CriticalRequestChainRenderer.render(this._dom, this._templateContext, details, this);
       case 'opportunity':
         return this._renderTable(details);
 
@@ -63,9 +63,9 @@ class DetailsRenderer {
         return null;
 
       default: {
-        // @ts-ignore tsc thinks this unreachable, but ts-ignore for error message just in case.
-        const detailsType = details.type;
-        throw new Error(`Unknown type: ${detailsType}`);
+        // @ts-ignore tsc thinks this is unreachable, but be forward compatible
+        // with new unexpected detail types.
+        return this._renderUnknown(details.type, details);
       }
     }
   }
@@ -97,7 +97,7 @@ class DetailsRenderer {
    * @param {string} text
    * @return {HTMLElement}
    */
-  _renderTextURL(text) {
+  renderTextURL(text) {
     const url = text;
 
     let displayedPath;
@@ -113,7 +113,7 @@ class DetailsRenderer {
     }
 
     const element = this._dom.createElement('div', 'lh-text__url');
-    element.appendChild(this._renderText(displayedPath));
+    element.appendChild(this._renderLink({text: displayedPath, url}));
 
     if (displayedHost) {
       const hostElem = this._renderText(displayedHost);
@@ -130,14 +130,18 @@ class DetailsRenderer {
   }
 
   /**
-   * @param {LH.Audit.Details.LinkValue} details
+   * @param {{text: string, url: string}} details
    * @return {Element}
    */
   _renderLink(details) {
     const allowedProtocols = ['https:', 'http:'];
-    const url = new URL(details.url);
-    if (!allowedProtocols.includes(url.protocol)) {
-      // Fall back to just the link text if protocol not allowed.
+    let url;
+    try {
+      url = new URL(details.url);
+    } catch (_) {}
+
+    if (!url || !allowedProtocols.includes(url.protocol)) {
+      // Fall back to just the link text if invalid or protocol not allowed.
       return this._renderText(details.text);
     }
 
@@ -185,6 +189,22 @@ class DetailsRenderer {
   }
 
   /**
+   * @param {string} type
+   * @param {*} value
+   */
+  _renderUnknown(type, value) {
+    // eslint-disable-next-line no-console
+    console.error(`Unknown details type: ${type}`, value);
+    const element = this._dom.createElement('details', 'lh-unknown');
+    this._dom.createChildOf(element, 'summary').textContent =
+      `We don't know how to render audit details of type \`${type}\`. ` +
+      'The Lighthouse version that collected this data is likely newer than the Lighthouse ' +
+      'version of the report renderer. Expand for the raw JSON.';
+    this._dom.createChildOf(element, 'pre').textContent = JSON.stringify(value, null, 2);
+    return element;
+  }
+
+  /**
    * Render a details item value for embedding in a table. Renders the value
    * based on the heading's valueType, unless the value itself has a `type`
    * property to override it.
@@ -210,11 +230,14 @@ class DetailsRenderer {
         case 'node': {
           return this.renderNode(value);
         }
+        case 'source-location': {
+          return this.renderSourceLocation(value);
+        }
         case 'url': {
-          return this._renderTextURL(value.value);
+          return this.renderTextURL(value.value);
         }
         default: {
-          throw new Error(`Unknown valueType: ${value.type}`);
+          return this._renderUnknown(value.type, value);
         }
       }
     }
@@ -256,14 +279,14 @@ class DetailsRenderer {
       case 'url': {
         const strValue = String(value);
         if (URL_PREFIXES.some(prefix => strValue.startsWith(prefix))) {
-          return this._renderTextURL(strValue);
+          return this.renderTextURL(strValue);
         } else {
           // Fall back to <pre> rendering if not actually a URL.
           return this._renderCode(strValue);
         }
       }
       default: {
-        throw new Error(`Unknown valueType: ${heading.valueType}`);
+        return this._renderUnknown(heading.valueType, value);
       }
     }
   }
@@ -370,6 +393,36 @@ class DetailsRenderer {
     if (item.selector) element.setAttribute('data-selector', item.selector);
     if (item.snippet) element.setAttribute('data-snippet', item.snippet);
 
+    return element;
+  }
+
+  /**
+   * @param {LH.Audit.Details.SourceLocationValue} item
+   * @return {Element|null}
+   * @protected
+   */
+  renderSourceLocation(item) {
+    if (!item.url) {
+      return null;
+    }
+
+    // Lines are shown as one-indexed.
+    const line = item.line + 1;
+    const column = item.column;
+
+    let element;
+    if (item.urlProvider === 'network') {
+      element = this.renderTextURL(item.url);
+      this._dom.find('a', element).textContent += `:${line}:${column}`;
+    } else {
+      element = this._renderText(`${item.url}:${line}:${column} (from sourceURL)`);
+    }
+
+    element.classList.add('lh-source-location');
+    element.setAttribute('data-source-url', item.url);
+    // DevTools expects zero-indexed lines.
+    element.setAttribute('data-source-line', String(item.line));
+    element.setAttribute('data-source-column', String(item.column));
     return element;
   }
 
