@@ -12,11 +12,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const mkdir = fs.promises.mkdir;
 
 const LighthouseRunner = require('../lighthouse-core/runner.js');
 const babel = require('babel-core');
 const browserify = require('browserify');
-const makeDir = require('make-dir');
 const pkg = require('../package.json');
 
 const VERSION = pkg.version;
@@ -36,9 +36,10 @@ const locales = fs.readdirSync(__dirname + '/../lighthouse-core/lib/i18n/locales
 /** @param {string} file */
 const isDevtools = file => path.basename(file).includes('devtools');
 /** @param {string} file */
-const isExtension = file => path.basename(file).includes('extension');
+const isLightrider = file => path.basename(file).includes('lightrider');
 
 const BANNER = `// lighthouse, browserified. ${VERSION} (${COMMIT_HASH})\n`;
+const DEBUG = false; // true for sourcemaps
 
 /**
  * Browserify starting at the file at entryPath. Contains entry-point-specific
@@ -49,11 +50,11 @@ const BANNER = `// lighthouse, browserified. ${VERSION} (${COMMIT_HASH})\n`;
  * @return {Promise<void>}
  */
 async function browserifyFile(entryPath, distPath) {
-  let bundle = browserify(entryPath); // , {debug: true}); // for sourcemaps
+  let bundle = browserify(entryPath, {debug: DEBUG});
 
   bundle
     // Transform the fs.readFile etc into inline strings.
-    .transform('brfs', {global: true, parserOpts: {ecmaVersion: 10}})
+    .transform('@wardpeet/brfs', {global: true, parserOpts: {ecmaVersion: 10}})
     // Strip everything out of package.json includes except for the version.
     .transform('package-json-versionify');
 
@@ -61,21 +62,22 @@ async function browserifyFile(entryPath, distPath) {
   bundle.ignore('source-map')
     .ignore('debug/node')
     .ignore('intl')
+    .ignore('intl-pluralrules')
     .ignore('raven')
-    .ignore('mkdirp')
     .ignore('rimraf')
     .ignore('pako/lib/zlib/inflate.js');
 
   // Don't include the desktop protocol connection.
   bundle.ignore(require.resolve('../lighthouse-core/gather/connections/cri.js'));
 
-  // Dont include the stringified report in DevTools.
-  if (isDevtools(entryPath)) {
+  // Don't include the stringified report in DevTools - see devtools-report-assets.js
+  // Don't include in Lightrider - HTML generation isn't supported, so report assets aren't needed.
+  if (isDevtools(entryPath) || isLightrider(entryPath)) {
     bundle.ignore(require.resolve('../lighthouse-core/report/html/html-report-assets.js'));
   }
 
-  // Don't include locales in DevTools or the extension for now.
-  if (isDevtools(entryPath) || isExtension(entryPath)) {
+  // Don't include locales in DevTools.
+  if (isDevtools(entryPath)) {
     // @ts-ignore bundle.ignore does accept an array of strings.
     bundle.ignore(locales);
   }
@@ -99,7 +101,7 @@ async function browserifyFile(entryPath, distPath) {
   const bundleStream = bundle.bundle();
 
   // Make sure path exists.
-  await makeDir(path.dirname(distPath));
+  await mkdir(path.dirname(distPath), {recursive: true});
   return new Promise((resolve, reject) => {
     const writeStream = fs.createWriteStream(distPath);
     writeStream.on('finish', resolve);
@@ -138,7 +140,9 @@ function minifyScript(filePath) {
  */
 async function build(entryPath, distPath) {
   await browserifyFile(entryPath, distPath);
-  minifyScript(distPath);
+  if (!DEBUG) {
+    minifyScript(distPath);
+  }
 }
 
 /**
